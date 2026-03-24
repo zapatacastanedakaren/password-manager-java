@@ -1,0 +1,2 @@
+com\passwordmanager\db\AppLifecycle.class
+com\passwordmanager\db\DatabasePool.class
