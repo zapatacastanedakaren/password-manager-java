@@ -1,2 +1,6 @@
+com\passwordmanager\model\Password.class
 com\passwordmanager\db\AppLifecycle.class
+com\passwordmanager\model\User.class
+com\passwordmanager\dao\UserDAO.class
+com\passwordmanager\dao\PasswordDAO.class
 com\passwordmanager\db\DatabasePool.class
