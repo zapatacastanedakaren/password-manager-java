@@ -1,0 +1,14 @@
+# Variables de entorno sensibles
+.env
+
+# Build
+target/
+*.class
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Logs
+*.log
