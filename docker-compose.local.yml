@@ -1,0 +1,12 @@
+services:
+  app:
+    build: .
+    container_name: pm_app
+    restart: unless-stopped
+    environment:
+      DB_URL: jdbc:mysql://host.docker.internal:3306/${DB_NAME}?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+    ports:
+      - "8080:8080"

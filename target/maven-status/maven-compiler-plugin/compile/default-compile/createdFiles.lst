@@ -1,6 +1,11 @@
 com\passwordmanager\model\Password.class
+com\passwordmanager\util\AuthUtil.class
+com\passwordmanager\servlet\PasswordServlet.class
+com\passwordmanager\servlet\AuthServlet.class
 com\passwordmanager\db\AppLifecycle.class
 com\passwordmanager\model\User.class
 com\passwordmanager\dao\UserDAO.class
+com\passwordmanager\util\JsonUtil.class
 com\passwordmanager\dao\PasswordDAO.class
+com\passwordmanager\util\CryptoUtil.class
 com\passwordmanager\db\DatabasePool.class
