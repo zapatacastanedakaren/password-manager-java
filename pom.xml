@@ -71,6 +71,8 @@
                     <configuration>
                         <properties>
                             <cargo.servlet.port>8080</cargo.servlet.port>
+                            <!-- ✅ Variable de entorno para CryptoUtil -->
+                            <cargo.env.ENCRYPTION_KEY>wMj+fYP5AeTEmDycq75qNAC16XVYEH6MKynbC8/UORA=</cargo.env.ENCRYPTION_KEY>
                         </properties>
                     </configuration>
                 </configuration>
