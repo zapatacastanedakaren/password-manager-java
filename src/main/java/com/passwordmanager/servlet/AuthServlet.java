@@ -2,7 +2,6 @@ package com.passwordmanager.servlet;
 
 import com.passwordmanager.dao.UserDAO;
 import com.passwordmanager.model.User;
-import com.passwordmanager.util.AuthUtil;
 import com.passwordmanager.util.JsonUtil;
 import jakarta.servlet.annotation.WebServlet;
 import jakarta.servlet.http.HttpServlet;
@@ -11,22 +10,15 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.json.JSONObject;
 
 import java.io.IOException;
+import java.util.Base64;
 
-/**
- * Maneja registro y login de usuarios.
- *
- * POST /api/auth/register → crea un nuevo usuario
- * POST /api/auth/login → valida credenciales y devuelve datos del usuario
- * GET  /api/auth/me → verifica que las credenciales del header son válidas
- */
 @WebServlet("/api/auth/*")
 public class AuthServlet extends HttpServlet {
     private final UserDAO userDAO = new UserDAO();
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse res) throws IOException {
-        String path = req.getPathInfo(); // /register o /login
-
+        String path = req.getPathInfo();
         if ("/register".equals(path)) {
             handleRegister(req, res);
         } else if ("/login".equals(path)) {
@@ -39,7 +31,6 @@ public class AuthServlet extends HttpServlet {
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse res) throws IOException {
         String path = req.getPathInfo();
-
         if ("/me".equals(path)) {
             handleMe(req, res);
         } else {
@@ -47,49 +38,33 @@ public class AuthServlet extends HttpServlet {
         }
     }
 
-    // /register
     private void handleRegister(HttpServletRequest req, HttpServletResponse res) throws IOException {
         try {
             JSONObject body = new JSONObject(JsonUtil.readBody(req));
-
             String username = body.optString("username", "").trim();
             String email = body.optString("email", "").trim();
             String password = body.optString("password", "");
             String confirmPassword = body.optString("confirmPassword", "");
 
-            // Validaciones básicas
             if (username.isBlank() || email.isBlank() || password.isBlank()) {
                 JsonUtil.error(res, 400, "Todos los campos son obligatorios.");
                 return;
             }
-
             if (!email.matches("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")) {
                 JsonUtil.error(res, 400, "Email inválido.");
                 return;
             }
-
-            if (!password.matches("^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d).{8,}$")) {
-                JsonUtil.error(res, 400, "Contraseña débil. Mínimo 8 caracteres, mayúscula, minúscula y número.");
-                return;
-            }
-
             if (!password.equals(confirmPassword)) {
                 JsonUtil.error(res, 400, "Las contraseñas no coinciden.");
                 return;
             }
-
-            if (!username.matches("^[a-zA-Z0-9_]{3,25}$")) {
-                JsonUtil.error(res, 400, "Usuario inválido. 3-25 caracteres, letras, números y guiones bajos.");
-                return;
-            }
-
             if (userDAO.emailExists(email)) {
                 JsonUtil.error(res, 400, "El email ya está registrado.");
                 return;
             }
 
-            String hashedPassword = AuthUtil.hashPassword(password);
-            int newId = userDAO.create(username, email, hashedPassword);
+            // ⚠️ DEV ONLY: Guardar password en texto plano (NO usar en producción)
+            int newId = userDAO.create(username, email, password);
 
             JsonUtil.created(res, new JSONObject()
                 .put("message", "Usuario registrado exitosamente.")
@@ -103,7 +78,6 @@ public class AuthServlet extends HttpServlet {
         }
     }
 
-    // /login
     private void handleLogin(HttpServletRequest req, HttpServletResponse res) throws IOException {
         try {
             JSONObject body = new JSONObject(JsonUtil.readBody(req));
@@ -116,9 +90,9 @@ public class AuthServlet extends HttpServlet {
             }
 
             User user = userDAO.findByEmail(email);
-
-            // Mismo mensaje para email y password incorrectos — no revelar cuál falló
-            if (user == null || !org.mindrot.jbcrypt.BCrypt.checkpw(pass, user.getPassword())) {
+            
+            // ⚠️ DEV ONLY: Comparación simple (NO usar en producción)
+            if (user == null || !pass.equals(user.getPassword())) {
                 JsonUtil.error(res, 401, "Credenciales incorrectas.");
                 return;
             }
@@ -135,19 +109,42 @@ public class AuthServlet extends HttpServlet {
         }
     }
 
-    // /me
     private void handleMe(HttpServletRequest req, HttpServletResponse res) throws IOException {
-        User user = AuthUtil.authenticate(req);
+        try {
+            String authHeader = req.getHeader("Authorization");
+            if (authHeader == null || !authHeader.startsWith("Basic ")) {
+                JsonUtil.error(res, 401, "No autenticado.");
+                return;
+            }
 
-        if (user == null) {
-            JsonUtil.error(res, 401, "No autenticado.");
-            return;
+            String base64 = authHeader.substring("Basic ".length()).trim();
+            String decoded = new String(Base64.getDecoder().decode(base64));
+            String[] parts = decoded.split(":", 2);
+            
+            if (parts.length != 2) {
+                JsonUtil.error(res, 401, "Credenciales inválidas.");
+                return;
+            }
+            
+            String email = parts[0].trim();
+            String password = parts[1];
+            
+            User user = userDAO.findByEmail(email);
+            
+            // ⚠️ DEV ONLY: Misma validación simple que handleLogin
+            if (user == null || !password.equals(user.getPassword())) {
+                JsonUtil.error(res, 401, "Credenciales inválidas.");
+                return;
+            }
+            
+            JsonUtil.ok(res, new JSONObject()
+                .put("user", new JSONObject()
+                    .put("id", user.getId())
+                    .put("username", user.getUsername())
+                    .put("email", user.getEmail())));
+                    
+        } catch (Exception e) {
+            JsonUtil.error(res, 401, "Error de autenticación.");
         }
-
-        JsonUtil.ok(res, new JSONObject()
-            .put("user", new JSONObject()
-                .put("id", user.getId())
-                .put("username", user.getUsername())
-                .put("email", user.getEmail())));
     }
 }

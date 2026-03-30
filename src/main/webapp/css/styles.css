@@ -1,0 +1,21 @@
+.password-field {
+  font-family: monospace;
+  letter-spacing: 0.1em;
+}
+
+.cursor-pointer {
+  cursor: pointer;
+}
+
+.fade-in {
+  animation: fadeIn 0.2s ease-in;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

@@ -7,58 +7,58 @@ import org.mindrot.jbcrypt.BCrypt;
 
 import java.util.Base64;
 
-/**
- * Maneja la autenticación stateless via Basic Auth.
- *
- * El frontend envía en cada request:
- *   Authorization: Basic base64(email:password)
- *
- * Este util decodifica el header, busca el usuario en BD
- * y verifica el hash bcrypt.
- */
 public class AuthUtil {
-    private AuthUtil() {}
-
+    
     /**
-     * Valida las credenciales del header Authorization.
-     * Retorna el User si son válidas, null si no.
+     * Autentica al usuario usando Basic Auth header.
+     * Devuelve el User si las credenciales son válidas, null si no.
      */
     public static User authenticate(HttpServletRequest req) {
-        String header = req.getHeader("Authorization");
-
-        if (header == null || !header.startsWith("Basic")) return null;
-
         try {
-            // Decodificar base64
-            String decoded = new String(Base64.getDecoder().decode(header.substring(6)));
-            int colonIndex = decoded.indexOf(':');
-            if (colonIndex < 0) return null;
-
-            String email = decoded.substring(0, colonIndex);
-            String password = decoded.substring(colonIndex + 1);
-
-            if (email.isBlank() || password.isBlank()) return null;
-
-            // Buscar usuario en BD
+            // 1. Obtener header Authorization
+            String authHeader = req.getHeader("Authorization");
+            if (authHeader == null || !authHeader.startsWith("Basic ")) {
+                return null;
+            }
+            
+            // 2. Decodificar credenciales Base64
+            String base64Credentials = authHeader.substring("Basic ".length()).trim();
+            String credentials = new String(Base64.getDecoder().decode(base64Credentials));
+            String[] parts = credentials.split(":", 2);
+            
+            if (parts.length != 2) {
+                return null;
+            }
+            
+            String email = parts[0];
+            String password = parts[1];  // ← contraseña en texto plano
+            
+            // 3. Buscar usuario en BD
             UserDAO userDAO = new UserDAO();
             User user = userDAO.findByEmail(email);
-
-            if (user == null) return null;
-
-            // Verificar bcrypt
-            if (!BCrypt.checkpw(password, user.getPassword())) return null;
-
+            
+            if (user == null) {
+                return null;
+            }
+            
+            // ✅ CRÍTICO: Usar BCrypt.checkpw para comparar contraseña con hash
+            // Esto es lo que probablemente faltaba en tu código anterior
+            if (!BCrypt.checkpw(password, user.getPassword())) {
+                return null;
+            }
+            
             return user;
-
+            
         } catch (Exception e) {
+            // Cualquier error = no autenticado
             return null;
         }
     }
-
+    
     /**
-     * Hashea una contraseña con bcrypt.
+     * Hashea una contraseña usando BCrypt.
      */
-    public static String hashPassword(String plainPassword) {
-        return BCrypt.hashpw(plainPassword, BCrypt.gensalt(12));
+    public static String hashPassword(String password) {
+        return BCrypt.hashpw(password, BCrypt.gensalt());
     }
 }
