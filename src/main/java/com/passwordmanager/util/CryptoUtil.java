@@ -1,71 +1,76 @@
 package com.passwordmanager.util;
 
 import javax.crypto.Cipher;
-import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
-import java.security.SecureRandom;
 import java.util.Base64;
 
-/**
- * Cifrado AES-256-GCM para las contraseñas almacenadas.
- *
- * Formato del texto cifrado: base64(iv) + ":" + base64(encrypted)
- * El GCM incluye el authTag al final del encrypted — no se maneja por separado.
- *
- * La clave se lee de la variable de entorno ENCRYPTION_KEY (32 bytes en base64).
- * Generar con: openssl rand -base64 32
- */
 public class CryptoUtil {
+    
+    // 🔑 Clave de 32 bytes (256 bits) para AES-256
+    // En producción: usar variables de entorno o KeyStore
+    private static final String SECRET_KEY = "0123456789abcdef0123456789abcdef";
+    
+    // Parámetros para GCM
     private static final String ALGORITHM = "AES/GCM/NoPadding";
-    private static final int IV_LENGTH = 12; // bytes
-    private static final int TAG_LENGTH = 128; // bits
-
-    private static final SecretKey SECRET_KEY;
-
-    static {
-        String keyB64 = System.getenv("ENCRYPTION_KEY");
-        if (keyB64 == null || keyB64.isBlank()) {
-            throw new RuntimeException("Variable de entorno ENCRYPTION_KEY no definida.");
-        }
-        byte[] keyBytes = Base64.getDecoder().decode(keyB64);
-        if (keyBytes.length != 32) {
-            throw new RuntimeException("ENCRYPTION_KEY debe ser de 32 bytes (base64 de 'openssl rand -base64 32').");
-        }
-        SECRET_KEY = new SecretKeySpec(keyBytes, "AES");
-    }
-
-    private CryptoUtil() {}
+    private static final int IV_LENGTH = 12; // 96 bits
+    private static final int TAG_LENGTH = 16; // 128 bits
 
     /**
-     * Cifra un texto plano.
-     * @return "base64(iv):base64(encrypted+authTag)"
+     * Encripta un texto usando AES-256-GCM
+     * @param plainText Texto en claro
+     * @return Texto encriptado en Base64 (IV + ciphertext)
      */
     public static String encrypt(String plainText) throws Exception {
-        byte[] iv = new byte[IV_LENGTH];
-        new SecureRandom().nextBytes(iv);
-
+        if (plainText == null || plainText.isEmpty()) {
+            return "";
+        }
+        
         Cipher cipher = Cipher.getInstance(ALGORITHM);
-        cipher.init(Cipher.ENCRYPT_MODE, SECRET_KEY, new GCMParameterSpec(TAG_LENGTH, iv));
-
-        byte[] encrypted = cipher.doFinal(plainText.getBytes("UTF-8"));
-
-        return Base64.getEncoder().encodeToString(iv) + ":" +
-               Base64.getEncoder().encodeToString(encrypted);
+        SecretKeySpec keySpec = new SecretKeySpec(SECRET_KEY.getBytes(), "AES");
+        
+        // Generar IV aleatorio
+        byte[] iv = new byte[IV_LENGTH];
+        new java.security.SecureRandom().nextBytes(iv);
+        
+        GCMParameterSpec spec = new GCMParameterSpec(TAG_LENGTH * 8, iv);
+        cipher.init(Cipher.ENCRYPT_MODE, keySpec, spec);
+        
+        byte[] cipherText = cipher.doFinal(plainText.getBytes("UTF-8"));
+        
+        // Combinar IV + ciphertext
+        byte[] combined = new byte[IV_LENGTH + cipherText.length];
+        System.arraycopy(iv, 0, combined, 0, IV_LENGTH);
+        System.arraycopy(cipherText, 0, combined, IV_LENGTH, cipherText.length);
+        
+        return Base64.getEncoder().encodeToString(combined);
     }
 
     /**
-     * Descifra un texto cifrado en formato "base64(iv):base64(encrypted+authTag)".
-     * @return texto plano original
+     * Desencripta un texto usando AES-256-GCM
+     * @param encryptedText Texto encriptado en Base64
+     * @return Texto original en claro
      */
-    public static String decrypt(String encryptedData) throws Exception {
-        String[] parts = encryptedData.split(":");
-        byte[] iv = Base64.getDecoder().decode(parts[0]);
-        byte[] encrypted = Base64.getDecoder().decode(parts[1]);
-
+    public static String decrypt(String encryptedText) throws Exception {
+        if (encryptedText == null || encryptedText.isEmpty()) {
+            return "";
+        }
+        
+        byte[] combined = Base64.getDecoder().decode(encryptedText);
+        
+        // Separar IV y ciphertext
+        byte[] iv = new byte[IV_LENGTH];
+        byte[] cipherText = new byte[combined.length - IV_LENGTH];
+        
+        System.arraycopy(combined, 0, iv, 0, IV_LENGTH);
+        System.arraycopy(combined, IV_LENGTH, cipherText, 0, cipherText.length);
+        
         Cipher cipher = Cipher.getInstance(ALGORITHM);
-        cipher.init(Cipher.DECRYPT_MODE, SECRET_KEY, new GCMParameterSpec(TAG_LENGTH, iv));
-
-        return new String(cipher.doFinal(encrypted), "UTF-8");
+        SecretKeySpec keySpec = new SecretKeySpec(SECRET_KEY.getBytes(), "AES");
+        
+        GCMParameterSpec spec = new GCMParameterSpec(TAG_LENGTH * 8, iv);
+        cipher.init(Cipher.DECRYPT_MODE, keySpec, spec);
+        
+        return new String(cipher.doFinal(cipherText), "UTF-8");
     }
 }

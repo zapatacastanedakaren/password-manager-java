@@ -8,122 +8,214 @@ import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.json.JSONObject;
+import org.mindrot.jbcrypt.BCrypt;
 
 import java.io.IOException;
 import java.util.Base64;
 
 @WebServlet("/api/auth/*")
 public class AuthServlet extends HttpServlet {
+    
     private final UserDAO userDAO = new UserDAO();
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse res) throws IOException {
         String path = req.getPathInfo();
-        if ("/register".equals(path)) {
-            handleRegister(req, res);
-        } else if ("/login".equals(path)) {
-            handleLogin(req, res);
-        } else {
+        
+        if (path == null) {
             JsonUtil.error(res, 404, "Ruta no encontrada.");
+            return;
+        }
+        
+        switch (path) {
+            case "/register":
+                handleRegister(req, res);
+                break;
+            case "/login":
+                handleLogin(req, res);
+                break;
+            default:
+                JsonUtil.error(res, 404, "Ruta no encontrada.");
         }
     }
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse res) throws IOException {
         String path = req.getPathInfo();
+        
         if ("/me".equals(path)) {
-            handleMe(req, res);
-        } else {
-            JsonUtil.error(res, 404, "Ruta no encontrada.");
+            handleGetMe(req, res);
+            return;
         }
+        
+        JsonUtil.error(res, 404, "Ruta no encontrada.");
     }
 
+    /**
+     * POST /api/auth/register
+     * Registra un nuevo usuario con contraseña hasheada (BCrypt)
+     */
     private void handleRegister(HttpServletRequest req, HttpServletResponse res) throws IOException {
         try {
             JSONObject body = new JSONObject(JsonUtil.readBody(req));
+            
             String username = body.optString("username", "").trim();
             String email = body.optString("email", "").trim();
             String password = body.optString("password", "");
             String confirmPassword = body.optString("confirmPassword", "");
-
+            
+            // Validaciones
             if (username.isBlank() || email.isBlank() || password.isBlank()) {
                 JsonUtil.error(res, 400, "Todos los campos son obligatorios.");
                 return;
             }
+            
             if (!email.matches("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")) {
                 JsonUtil.error(res, 400, "Email inválido.");
                 return;
             }
+            
+            if (password.length() < 8) {
+                JsonUtil.error(res, 400, "Contraseña debe tener al menos 8 caracteres.");
+                return;
+            }
+            
             if (!password.equals(confirmPassword)) {
                 JsonUtil.error(res, 400, "Las contraseñas no coinciden.");
                 return;
             }
+            
+            // Verificar si el email ya existe
             if (userDAO.emailExists(email)) {
-                JsonUtil.error(res, 400, "El email ya está registrado.");
+                JsonUtil.error(res, 409, "El email ya está registrado.");
                 return;
             }
-
-            // ⚠️ DEV ONLY: Guardar password en texto plano (NO usar en producción)
-            int newId = userDAO.create(username, email, password);
-
+            
+            // ✅ HASHEAR CONTRASEÑA CON BCrypt
+            String hashedPassword = BCrypt.hashpw(password, BCrypt.gensalt());
+            
+            // Crear usuario
+            int userId = userDAO.create(username, email, hashedPassword);
+            
             JsonUtil.created(res, new JSONObject()
-                .put("message", "Usuario registrado exitosamente.")
-                .put("user", new JSONObject()
-                    .put("id", newId)
-                    .put("username", username)
-                    .put("email", email)));
-
+                .put("id", userId)
+                .put("message", "Usuario registrado exitosamente."));
+            
         } catch (Exception e) {
-            JsonUtil.error(res, 500, "Error en el servidor.");
+            e.printStackTrace();
+            JsonUtil.error(res, 500, "Error al registrar usuario.");
         }
     }
 
+    /**
+     * POST /api/auth/login
+     * Valida credenciales con BCrypt (soporta hash y texto plano)
+     */
     private void handleLogin(HttpServletRequest req, HttpServletResponse res) throws IOException {
         try {
             JSONObject body = new JSONObject(JsonUtil.readBody(req));
+            
             String email = body.optString("email", "").trim();
-            String pass = body.optString("password", "");
-
-            if (email.isBlank() || pass.isBlank()) {
+            String password = body.optString("password", "");
+            
+            System.out.println("🔍 [LOGIN] Email recibido: " + email);
+            System.out.println("🔍 [LOGIN] Password recibida: [" + password + "]");
+            
+            if (email.isBlank() || password.isBlank()) {
                 JsonUtil.error(res, 400, "Email y contraseña son obligatorios.");
                 return;
             }
-
+            
             User user = userDAO.findByEmail(email);
             
-            // ⚠️ DEV ONLY: Comparación simple (NO usar en producción)
-            if (user == null || !pass.equals(user.getPassword())) {
+            System.out.println("🔍 [LOGIN] Usuario encontrado: " + (user != null));
+            
+            if (user == null) {
                 JsonUtil.error(res, 401, "Credenciales incorrectas.");
                 return;
             }
-
+            
+            String dbPassword = user.getPassword();
+            System.out.println("🔍 [LOGIN] Password en BD: " + dbPassword);
+            System.out.println("🔍 [LOGIN] Empieza con $2a$?: " + dbPassword.startsWith("$2a$"));
+            
+            boolean valid;
+            
+            if (dbPassword.startsWith("$2a$")) {
+                System.out.println("🔍 [LOGIN] Usando BCrypt.checkpw...");
+                valid = BCrypt.checkpw(password, dbPassword);
+                System.out.println("🔍 [LOGIN] Resultado BCrypt: " + valid);
+            } else {
+                System.out.println("🔍 [LOGIN] Usando equals (texto plano)...");
+                valid = password.equals(dbPassword);
+                System.out.println("🔍 [LOGIN] Resultado equals: " + valid);
+            }
+            
+            if (!valid) {
+                System.out.println("❌ [LOGIN] Credenciales incorrectas - valid=false");
+                JsonUtil.error(res, 401, "Credenciales incorrectas.");
+                return;
+            }
+            
+            System.out.println("✅ [LOGIN] Login exitoso para: " + email);
+            
+            JSONObject userData = new JSONObject()
+                .put("id", user.getId())
+                .put("username", user.getUsername())
+                .put("email", user.getEmail());
+            
             JsonUtil.ok(res, new JSONObject()
-                .put("message", "Login exitoso.")
-                .put("user", new JSONObject()
-                    .put("id", user.getId())
-                    .put("username", user.getUsername())
-                    .put("email", user.getEmail())));
-
+                .put("user", userData)
+                .put("message", "Login exitoso."));
+            
         } catch (Exception e) {
-            JsonUtil.error(res, 500, "Error en el servidor.");
+            e.printStackTrace();
+            JsonUtil.error(res, 500, "Error al iniciar sesión.");
         }
     }
 
-    private void handleMe(HttpServletRequest req, HttpServletResponse res) throws IOException {
+    /**
+     * GET /api/auth/me
+     * Obtiene el usuario actual desde Basic Auth header
+     */
+    private void handleGetMe(HttpServletRequest req, HttpServletResponse res) throws IOException {
         try {
-            String authHeader = req.getHeader("Authorization");
-            if (authHeader == null || !authHeader.startsWith("Basic ")) {
+            User user = authenticate(req);
+            
+            if (user == null) {
                 JsonUtil.error(res, 401, "No autenticado.");
                 return;
             }
+            
+            JSONObject userData = new JSONObject()
+                .put("id", user.getId())
+                .put("username", user.getUsername())
+                .put("email", user.getEmail());
+            
+            JsonUtil.ok(res, new JSONObject().put("user", userData));
+            
+        } catch (Exception e) {
+            JsonUtil.error(res, 500, "Error al obtener usuario.");
+        }
+    }
 
+    /**
+     * Autentica usuario desde Basic Auth header
+     */
+    private User authenticate(HttpServletRequest req) {
+        try {
+            String authHeader = req.getHeader("Authorization");
+            
+            if (authHeader == null || !authHeader.startsWith("Basic ")) {
+                return null;
+            }
+            
             String base64 = authHeader.substring("Basic ".length()).trim();
             String decoded = new String(Base64.getDecoder().decode(base64));
             String[] parts = decoded.split(":", 2);
             
             if (parts.length != 2) {
-                JsonUtil.error(res, 401, "Credenciales inválidas.");
-                return;
+                return null;
             }
             
             String email = parts[0].trim();
@@ -131,20 +223,28 @@ public class AuthServlet extends HttpServlet {
             
             User user = userDAO.findByEmail(email);
             
-            // ⚠️ DEV ONLY: Misma validación simple que handleLogin
-            if (user == null || !password.equals(user.getPassword())) {
-                JsonUtil.error(res, 401, "Credenciales inválidas.");
-                return;
+            if (user == null) {
+                return null;
             }
             
-            JsonUtil.ok(res, new JSONObject()
-                .put("user", new JSONObject()
-                    .put("id", user.getId())
-                    .put("username", user.getUsername())
-                    .put("email", user.getEmail())));
-                    
+            // ✅ ACEPTA TANTO BCrypt COMO TEXTO PLANO
+            String dbPassword = user.getPassword();
+            boolean valid;
+            
+            if (dbPassword.startsWith("$2a$")) {
+                valid = BCrypt.checkpw(password, dbPassword);
+            } else {
+                valid = password.equals(dbPassword);
+            }
+            
+            if (!valid) {
+                return null;
+            }
+            
+            return user;
+            
         } catch (Exception e) {
-            JsonUtil.error(res, 401, "Error de autenticación.");
+            return null;
         }
     }
 }
